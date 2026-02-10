@@ -20,7 +20,6 @@ def extract_zip(zip_path, extract_to):
 
 def parse_metadata(folder_name):
     # Format: 00_0E_15-N2D-260209-215048
-    # ID-Descriptor-Date-Time
     parts = folder_name.split('-')
     if len(parts) >= 4:
         return {
@@ -34,10 +33,11 @@ def parse_metadata(folder_name):
 def organize_files(source_dir, dest_dir):
     print("Organizing files...")
     
-    # Define groups
+    # Specific keys for new grouping logic
     groups = {
-        "psd_noise": [],
-        "psd_signal": [],
+        "psd_signal_lfp_sbp": [], # LFP + SBP signal
+        "psd_noise_lfp_sbp": [],  # LFP + SBP noise
+        "psd_full_combined": [],  # Full PSD (signal + noise)
         "thdn": [],
         "gain": [],
         "rms_nitara": [],
@@ -63,10 +63,24 @@ def organize_files(source_dir, dest_dir):
             lower_name = file.lower()
             
             if lower_name.endswith(('.png', '.jpg', '.jpeg', '.svg')):
-                if "_psd-" in lower_name and "noise" in lower_name:
-                    groups["psd_noise"].append(file_path)
-                elif "_psd-" in lower_name and "noise" not in lower_name:
-                    groups["psd_signal"].append(file_path)
+                
+                # PSD Logic
+                if "_psd-" in lower_name:
+                    is_noise = "noise" in lower_name
+                    is_full = "full" in lower_name
+                    is_lfp_sbp = "lfp" in lower_name or "sbp" in lower_name
+                    
+                    if is_full:
+                        groups["psd_full_combined"].append(file_path)
+                    elif is_lfp_sbp:
+                        if is_noise:
+                            groups["psd_noise_lfp_sbp"].append(file_path)
+                        else:
+                            groups["psd_signal_lfp_sbp"].append(file_path)
+                    else:
+                        groups["misc"].append(file_path)
+                        
+                # Other Groups
                 elif "thdn" in lower_name:
                     groups["thdn"].append(file_path)
                 elif "gain" in lower_name:
@@ -107,7 +121,6 @@ def organize_files(source_dir, dest_dir):
             filename = os.path.basename(original_path)
             dest_path = os.path.join(group_path, filename)
             shutil.copy2(original_path, dest_path)
-            # Store absolute path for PDF generation to be safe, or relative to script execution
             organized_paths[group_name].append(dest_path)
 
     return metadata, csv_summary, organized_paths
@@ -129,13 +142,14 @@ class PDFReport(FPDF):
         self.multi_cell(0, 5, body)
         self.ln()
 
-    def add_plot_image(self, img_path, title):
+    def add_plot_image(self, img_path, title, width=170, new_page=False):
+        if new_page:
+            self.add_page()
+            
         self.set_font('Arial', 'I', 9)
         self.cell(0, 5, title, 0, 1)
-        # Calculate width to fit page (A4 width is 210mm, margins ~20mm)
-        # Using 170mm width for image
         try:
-            self.image(img_path, w=170)
+            self.image(img_path, w=width)
         except Exception as e:
             self.cell(0, 5, f"Error loading image: {str(e)}", 0, 1)
         self.ln(5)
@@ -160,10 +174,8 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
     if csv_summary:
         for item in csv_summary:
             cols = ", ".join(item['columns'])
-            # Truncate long column lists
             if len(cols) > 100:
                 cols = cols[:100] + "..."
-            
             summary_text = (
                 f"File: {item['filename']}\n"
                 f"Rows: {item['rows']}\n"
@@ -174,12 +186,33 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
     else:
         pdf.chapter_body("No CSV data found.")
     
-    pdf.add_page()
+    # --- Visualizations ---
     
-    # Visualizations
-    presentation_order = [
-        ("PSD Noise Analysis", "psd_noise"),
-        ("PSD Signal Analysis", "psd_signal"),
+    # Page 1 of Plots: Signal PSD (LFP + SBP)
+    if "psd_signal_lfp_sbp" in organized_paths:
+        pdf.add_page()
+        pdf.chapter_title("Signal PSD Analysis (LFP & SBP)")
+        # 2 images on one page -> width ~170mm, height available ~250mm
+        # If images are square-ish, 120mm height each fits.
+        for img_path in organized_paths["psd_signal_lfp_sbp"]:
+            pdf.add_plot_image(img_path, os.path.basename(img_path), width=160)
+
+    # Page 2 of Plots: Noise PSD (LFP + SBP)
+    if "psd_noise_lfp_sbp" in organized_paths:
+        pdf.add_page()
+        pdf.chapter_title("Noise PSD Analysis (LFP & SBP)")
+        for img_path in organized_paths["psd_noise_lfp_sbp"]:
+            pdf.add_plot_image(img_path, os.path.basename(img_path), width=160)
+
+    # Page 3 of Plots: Full PSD (Signal + Noise)
+    if "psd_full_combined" in organized_paths:
+        pdf.add_page()
+        pdf.chapter_title("Full PSD Analysis (Signal & Noise)")
+        for img_path in organized_paths["psd_full_combined"]:
+            pdf.add_plot_image(img_path, os.path.basename(img_path), width=160)
+
+    # Remaining Plots (Standard flow)
+    remaining_order = [
         ("THDN Maps", "thdn"),
         ("Gain", "gain"),
         ("Nitara RMS & No-Stim", "rms_nitara"),
@@ -187,19 +220,16 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
         ("Miscellaneous", "misc")
     ]
     
-    for title, key in presentation_order:
+    for title, key in remaining_order:
         if key in organized_paths and organized_paths[key]:
+            pdf.add_page()
             pdf.chapter_title(title)
             for img_path in organized_paths[key]:
-                img_name = os.path.basename(img_path)
-                # Check if we need a new page for the image
-                if pdf.get_y() > 220: # A4 height is ~297mm
+                # Check for page overflow
+                if pdf.get_y() > 200: 
                     pdf.add_page()
                     pdf.chapter_title(f"{title} (cont.)")
-                
-                pdf.add_plot_image(img_path, img_name)
-            
-            pdf.ln(5)
+                pdf.add_plot_image(img_path, os.path.basename(img_path), width=160)
 
     pdf_output_path = os.path.join(output_dir, "report.pdf")
     pdf.output(pdf_output_path)
