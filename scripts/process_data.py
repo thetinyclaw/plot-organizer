@@ -32,27 +32,32 @@ def parse_metadata(folder_name):
 def organize_files(source_dir, dest_dir):
     print("Organizing files...")
     
-    # Specific keys for new grouping logic
+    # Specific keys for new grouping logic (User request 2026-02-10)
     groups = {
-        "psd_signal_lfp_sbp": [], # LFP + SBP signal
-        "psd_noise_lfp_sbp": [],  # LFP + SBP noise
-        "psd_full_combined": [],  # Full PSD (signal + noise)
-        "thdn": [],
-        "gain": [],
-        "rms_nitara": [],
-        "rms_electrode": [],
+        "psd_signal": [],      # Non-noise PSDs (3 images expected)
+        "psd_noise": [],       # Noise PSDs (3 images expected)
+        "thdn": [],            # THDN maps
+        "gain": [],            # Gain plots (2 images expected)
+        "nitara_group": [],    # RMS Nitara + No-Stim Nitara
+        "electrode_group": [], # RMS Electrode + No-Stim Electrode
         "misc": []
     }
     
     metadata = {}
     csv_summary = []
 
+    # Handle if the zip extracts to a single folder or loose files
     items = os.listdir(source_dir)
     if len(items) == 1 and os.path.isdir(os.path.join(source_dir, items[0])):
         data_root = os.path.join(source_dir, items[0])
+        # Try to parse metadata from the folder name if it looks like the pattern
+        # Pattern: PartID-Descriptor-Date-Time
+        # Example: 00_0E_15-N2D-260209-215048
         metadata = parse_metadata(items[0])
     else:
         data_root = source_dir
+        # If loose files, maybe the zip name had the metadata? 
+        # (We don't have zip name easily here, assume folder structure usually)
 
     print(f"Processing data root: {data_root}")
 
@@ -65,29 +70,27 @@ def organize_files(source_dir, dest_dir):
                 
                 # PSD Logic
                 if "_psd-" in lower_name:
-                    is_noise = "noise" in lower_name
-                    is_full = "full" in lower_name
-                    is_lfp_sbp = "lfp" in lower_name or "sbp" in lower_name
-                    
-                    if is_full:
-                        groups["psd_full_combined"].append(file_path)
-                    elif is_lfp_sbp:
-                        if is_noise:
-                            groups["psd_noise_lfp_sbp"].append(file_path)
-                        else:
-                            groups["psd_signal_lfp_sbp"].append(file_path)
+                    if "noise" in lower_name:
+                        groups["psd_noise"].append(file_path)
                     else:
-                        groups["misc"].append(file_path)
+                        groups["psd_signal"].append(file_path)
                         
-                # Other Groups
+                # THDN
                 elif "thdn" in lower_name:
                     groups["thdn"].append(file_path)
+                    
+                # Gain
                 elif "gain" in lower_name:
                     groups["gain"].append(file_path)
+                    
+                # Nitara Group (RMS + No-Stim)
                 elif "nitara" in lower_name and ("rms" in lower_name or "no-stim" in lower_name):
-                    groups["rms_nitara"].append(file_path)
+                    groups["nitara_group"].append(file_path)
+                    
+                # Electrode Group (RMS + No-Stim)
                 elif "electrode" in lower_name and ("rms" in lower_name or "no-stim" in lower_name):
-                    groups["rms_electrode"].append(file_path)
+                    groups["electrode_group"].append(file_path)
+                    
                 else:
                     groups["misc"].append(file_path)
             
@@ -156,7 +159,7 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
     pdf = PDFReport()
     pdf.set_auto_page_break(auto=True, margin=15)
     
-    # --- Page 1: Metadata, CSV, and Signal PSD (LFP+SBP) ---
+    # --- Page 1: Metadata, CSV, and Signal PSD ---
     pdf.add_page()
     pdf.set_font('Arial', 'B', 16)
     pdf.cell(0, 10, 'Data Analysis Report', 0, 1, 'C')
@@ -175,107 +178,143 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
     pdf.multi_cell(0, 5, meta_text)
     pdf.ln(5)
 
-    # Signal PSD (LFP & SBP) - Side by Side
-    if "psd_signal_lfp_sbp" in organized_paths:
-        pdf.chapter_title("Signal PSD Analysis (LFP & SBP)")
-        # 2 plots side-by-side
-        # Page width ~210mm. Margins 10mm. Usable ~190mm.
-        # Image width ~90mm each.
+    # PSD Signal (Non-Noise) - Page 1
+    if "psd_signal" in organized_paths:
+        pdf.chapter_title("PSD Analysis (Signal)")
+        
+        imgs = organized_paths["psd_signal"]
+        
         y_start = pdf.get_y()
+        w_img = 94
+        h_img = 70
         x_start = 10
-        w_img = 90
-        h_img = 60 # Aspect ratio guess
+        margin_x = 2
+        margin_y = 5
         
-        imgs = organized_paths["psd_signal_lfp_sbp"]
-        # Assuming exactly 2 images usually (LFP and SBP)
+        # Simple 2-col flow
         for i, img_path in enumerate(imgs):
-            if i < 2:
-                x = x_start + (i * (w_img + 5))
-                pdf.add_plot_image(img_path, os.path.basename(img_path), x, y_start, w_img, h_img)
-        
-        pdf.set_y(y_start + h_img + 10)
-
-    # Noise PSD (LFP & SBP) - Side by Side
-    if "psd_noise_lfp_sbp" in organized_paths:
-        pdf.chapter_title("Noise PSD Analysis (LFP & SBP)")
-        y_start = pdf.get_y()
-        x_start = 10
-        w_img = 90
-        h_img = 60
-        
-        imgs = organized_paths["psd_noise_lfp_sbp"]
-        for i, img_path in enumerate(imgs):
-            if i < 2:
-                x = x_start + (i * (w_img + 5))
-                pdf.add_plot_image(img_path, os.path.basename(img_path), x, y_start, w_img, h_img)
-        
-        pdf.set_y(y_start + h_img + 10)
-
-    # --- Page 2: Full PSD (Signal & Noise) ---
-    if "psd_full_combined" in organized_paths:
-        pdf.add_page()
-        pdf.chapter_title("Full PSD Analysis (Signal & Noise)")
-        # Expecting 2 images (signal full, noise full).
-        # Stack vertically or side-by-side depending on aspect ratio.
-        # Let's do side-by-side to save space if possible, or vertical if large.
-        # Given "Full", usually implies wide freq range. Let's stack 2 vertically but smaller.
-        
-        y_start = pdf.get_y()
-        w_img = 150
-        h_img = 80
-        x_center = (210 - w_img) / 2
-        
-        imgs = organized_paths["psd_full_combined"]
-        for i, img_path in enumerate(imgs):
-            if pdf.get_y() + h_img > 270:
-                pdf.add_page()
-                y_start = 20
+            col = i % 2
+            row = i // 2
             
-            pdf.add_plot_image(img_path, os.path.basename(img_path), x_center, pdf.get_y(), w_img, h_img)
-            pdf.set_y(pdf.get_y() + h_img + 10)
+            x = x_start + (col * (w_img + margin_x))
+            y = y_start + (row * (h_img + margin_y))
+            
+            pdf.add_plot_image(img_path, os.path.basename(img_path), x, y, w_img, h_img)
+        
+        # Advance cursor past the last row
+        rows_used = (len(imgs) + 1) // 2
+        pdf.set_y(y_start + (rows_used * (h_img + margin_y)) + 5)
 
-    # --- Remaining Plots (2x2 Grid per page) ---
+    # PSD Noise - Page 2 (Force new page?)
+    if "psd_noise" in organized_paths:
+        pdf.add_page()
+        pdf.chapter_title("PSD Analysis (Noise)")
+        
+        imgs = organized_paths["psd_noise"]
+        y_start = pdf.get_y()
+        w_img = 94
+        h_img = 70
+        x_start = 10
+        margin_x = 2
+        margin_y = 5
+        
+        for i, img_path in enumerate(imgs):
+            col = i % 2
+            row = i // 2
+            
+            x = x_start + (col * (w_img + margin_x))
+            y = y_start + (row * (h_img + margin_y))
+            
+            pdf.add_plot_image(img_path, os.path.basename(img_path), x, y, w_img, h_img)
+            
+        rows_used = (len(imgs) + 1) // 2
+        pdf.set_y(y_start + (rows_used * (h_img + margin_y)) + 5)
+
+    # --- Remaining Groups ---
     remaining_order = [
         ("THDN Maps", "thdn"),
-        ("Gain", "gain"),
-        ("Nitara RMS & No-Stim", "rms_nitara"),
-        ("Electrode RMS & No-Stim", "rms_electrode"),
+        ("Gain Plots", "gain"),
+        ("Nitara RMS & No-Stim", "nitara_group"),
+        ("Electrode RMS & No-Stim", "electrode_group"),
         ("Miscellaneous", "misc")
     ]
+    
+    # Constants for grid (Dynamic approach below)
+    # Default fallback
+    w_img = 62
+    h_img = 48
+    margin_x = 2
+    margin_y = 5
 
     for title, key in remaining_order:
         if key in organized_paths and organized_paths[key]:
             pdf.add_page()
             pdf.chapter_title(title)
             
-            # Grid Layout: 2 columns, rows as needed
             imgs = organized_paths[key]
-            x_start = 10
+            num_imgs = len(imgs)
+            
+            # --- Dynamic Sizing Logic ---
+            # Goal: Maximize size while keeping on one page if possible (or split if too many)
+            # Usable area: W ~190mm, H ~250mm (minus header)
+            
+            if num_imgs <= 2:
+                # 1x2 Layout (HUGE)
+                # Stack vertically, full width
+                w_img = 150 
+                h_img = 110
+                cols_per_row = 1
+                x_center_offset = (190 - w_img) / 2 # Center it
+            elif num_imgs <= 4:
+                # 2x2 Layout (LARGE)
+                # 2 columns, 2 rows
+                w_img = 94
+                h_img = 70
+                cols_per_row = 2
+                x_center_offset = 0
+            elif num_imgs <= 6:
+                # 2x3 Layout (MEDIUM-LARGE)
+                w_img = 94
+                h_img = 70
+                cols_per_row = 2
+                x_center_offset = 0
+            else:
+                # 3x4 Layout (DENSE - Fallback for many plots)
+                w_img = 62
+                h_img = 48
+                cols_per_row = 3
+                x_center_offset = 0
+
+            x_start = 10 + x_center_offset
             y_start = pdf.get_y()
-            w_img = 90
-            h_img = 65
             
-            col = 0
-            row = 0
+            page_row = 0
+            page_col = 0
+            current_page_start_y = y_start
             
+            # Recalculate max rows based on new height
+            max_rows = int(240 // (h_img + margin_y))
+            if max_rows < 1: max_rows = 1
+
             for i, img_path in enumerate(imgs):
-                if i > 0 and i % 2 == 0:
-                    row += 1
-                    col = 0
-                else:
-                    col = i % 2
+                if i > 0:
+                    if i % cols_per_row == 0:
+                        page_col = 0
+                        page_row += 1
+                        
+                        if page_row >= max_rows:
+                            pdf.add_page()
+                            pdf.chapter_title(f"{title} (cont.)")
+                            current_page_start_y = pdf.get_y()
+                            page_row = 0
+                            page_col = 0
+                    else:
+                        page_col += 1
                 
-                # Check page overflow
-                cur_y = y_start + (row * (h_img + 15))
-                if cur_y + h_img > 270:
-                    pdf.add_page()
-                    pdf.chapter_title(f"{title} (cont.)")
-                    y_start = pdf.get_y()
-                    row = 0
-                    cur_y = y_start
+                x = x_start + (page_col * (w_img + margin_x))
+                y = current_page_start_y + (page_row * (h_img + margin_y))
                 
-                x = x_start + (col * (w_img + 5))
-                pdf.add_plot_image(img_path, os.path.basename(img_path), x, cur_y, w_img, h_img)
+                pdf.add_plot_image(img_path, os.path.basename(img_path), x, y, w_img, h_img)
 
     pdf_output_path = os.path.join(output_dir, "report.pdf")
     pdf.output(pdf_output_path)
