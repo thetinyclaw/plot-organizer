@@ -19,7 +19,6 @@ def extract_zip(zip_path, extract_to):
         zip_ref.extractall(extract_to)
 
 def parse_metadata(folder_name):
-    # Format: 00_0E_15-N2D-260209-215048
     parts = folder_name.split('-')
     if len(parts) >= 4:
         return {
@@ -127,91 +126,115 @@ def organize_files(source_dir, dest_dir):
 
 class PDFReport(FPDF):
     def header(self):
-        self.set_font('Arial', 'B', 15)
-        self.cell(0, 10, 'Data Analysis Report', 0, 1, 'C')
-        self.ln(5)
+        # Only show header on first page or meaningful sections?
+        # Let's keep it simple for now, but smaller.
+        self.set_font('Arial', 'B', 10)
+        # self.cell(0, 5, 'Data Analysis Report', 0, 1, 'R')
+        # self.ln(2)
 
     def chapter_title(self, title):
         self.set_font('Arial', 'B', 12)
-        self.set_fill_color(200, 220, 255)
-        self.cell(0, 10, title, 0, 1, 'L', 1)
-        self.ln(4)
+        self.set_fill_color(220, 220, 220)
+        self.cell(0, 8, title, 0, 1, 'L', 1)
+        self.ln(2)
 
     def chapter_body(self, body):
         self.set_font('Arial', '', 10)
         self.multi_cell(0, 5, body)
         self.ln()
 
-    def add_plot_image(self, img_path, title, width=170, new_page=False):
-        if new_page:
-            self.add_page()
-            
-        self.set_font('Arial', 'I', 9)
-        self.cell(0, 5, title, 0, 1)
-        try:
-            self.image(img_path, w=width)
-        except Exception as e:
-            self.cell(0, 5, f"Error loading image: {str(e)}", 0, 1)
-        self.ln(5)
+    def add_plot_image(self, img_path, title, x, y, w, h):
+        # Place image at specific coordinates
+        self.image(img_path, x=x, y=y, w=w, h=h)
+        # Add caption below
+        self.set_xy(x, y + h + 1)
+        self.set_font('Arial', 'I', 8)
+        self.cell(w, 5, title, 0, 0, 'C')
 
 def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
     print("Generating PDF report...")
     pdf = PDFReport()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    
+    # --- Page 1: Metadata, CSV, and Signal PSD (LFP+SBP) ---
     pdf.add_page()
+    pdf.set_font('Arial', 'B', 16)
+    pdf.cell(0, 10, 'Data Analysis Report', 0, 1, 'C')
+    pdf.ln(5)
     
     # Metadata
-    pdf.chapter_title('Metadata')
+    pdf.set_font('Arial', 'B', 12)
+    pdf.cell(0, 6, 'Metadata', 0, 1)
+    pdf.set_font('Arial', '', 10)
     meta_text = (
-        f"Part ID / Serial: {metadata.get('part_id', 'N/A')}\n"
-        f"Descriptor: {metadata.get('descriptor', 'N/A')}\n"
-        f"Date: {metadata.get('date', 'N/A')}\n"
+        f"Part ID: {metadata.get('part_id', 'N/A')} | "
+        f"Descriptor: {metadata.get('descriptor', 'N/A')} | "
+        f"Date: {metadata.get('date', 'N/A')} | "
         f"Time: {metadata.get('time', 'N/A')}"
     )
-    pdf.chapter_body(meta_text)
-    
-    # CSV Summary
-    pdf.chapter_title('CSV Data Summary')
-    if csv_summary:
-        for item in csv_summary:
-            cols = ", ".join(item['columns'])
-            if len(cols) > 100:
-                cols = cols[:100] + "..."
-            summary_text = (
-                f"File: {item['filename']}\n"
-                f"Rows: {item['rows']}\n"
-                f"Columns: {cols}\n"
-            )
-            pdf.chapter_body(summary_text)
-            pdf.ln(2)
-    else:
-        pdf.chapter_body("No CSV data found.")
-    
-    # --- Visualizations ---
-    
-    # Page 1 of Plots: Signal PSD (LFP + SBP)
+    pdf.multi_cell(0, 5, meta_text)
+    pdf.ln(5)
+
+    # Signal PSD (LFP & SBP) - Side by Side
     if "psd_signal_lfp_sbp" in organized_paths:
-        pdf.add_page()
         pdf.chapter_title("Signal PSD Analysis (LFP & SBP)")
-        # 2 images on one page -> width ~170mm, height available ~250mm
-        # If images are square-ish, 120mm height each fits.
-        for img_path in organized_paths["psd_signal_lfp_sbp"]:
-            pdf.add_plot_image(img_path, os.path.basename(img_path), width=160)
+        # 2 plots side-by-side
+        # Page width ~210mm. Margins 10mm. Usable ~190mm.
+        # Image width ~90mm each.
+        y_start = pdf.get_y()
+        x_start = 10
+        w_img = 90
+        h_img = 60 # Aspect ratio guess
+        
+        imgs = organized_paths["psd_signal_lfp_sbp"]
+        # Assuming exactly 2 images usually (LFP and SBP)
+        for i, img_path in enumerate(imgs):
+            if i < 2:
+                x = x_start + (i * (w_img + 5))
+                pdf.add_plot_image(img_path, os.path.basename(img_path), x, y_start, w_img, h_img)
+        
+        pdf.set_y(y_start + h_img + 10)
 
-    # Page 2 of Plots: Noise PSD (LFP + SBP)
+    # Noise PSD (LFP & SBP) - Side by Side
     if "psd_noise_lfp_sbp" in organized_paths:
-        pdf.add_page()
         pdf.chapter_title("Noise PSD Analysis (LFP & SBP)")
-        for img_path in organized_paths["psd_noise_lfp_sbp"]:
-            pdf.add_plot_image(img_path, os.path.basename(img_path), width=160)
+        y_start = pdf.get_y()
+        x_start = 10
+        w_img = 90
+        h_img = 60
+        
+        imgs = organized_paths["psd_noise_lfp_sbp"]
+        for i, img_path in enumerate(imgs):
+            if i < 2:
+                x = x_start + (i * (w_img + 5))
+                pdf.add_plot_image(img_path, os.path.basename(img_path), x, y_start, w_img, h_img)
+        
+        pdf.set_y(y_start + h_img + 10)
 
-    # Page 3 of Plots: Full PSD (Signal + Noise)
+    # --- Page 2: Full PSD (Signal & Noise) ---
     if "psd_full_combined" in organized_paths:
         pdf.add_page()
         pdf.chapter_title("Full PSD Analysis (Signal & Noise)")
-        for img_path in organized_paths["psd_full_combined"]:
-            pdf.add_plot_image(img_path, os.path.basename(img_path), width=160)
+        # Expecting 2 images (signal full, noise full).
+        # Stack vertically or side-by-side depending on aspect ratio.
+        # Let's do side-by-side to save space if possible, or vertical if large.
+        # Given "Full", usually implies wide freq range. Let's stack 2 vertically but smaller.
+        
+        y_start = pdf.get_y()
+        w_img = 150
+        h_img = 80
+        x_center = (210 - w_img) / 2
+        
+        imgs = organized_paths["psd_full_combined"]
+        for i, img_path in enumerate(imgs):
+            if pdf.get_y() + h_img > 270:
+                pdf.add_page()
+                y_start = 20
+            
+            pdf.add_plot_image(img_path, os.path.basename(img_path), x_center, pdf.get_y(), w_img, h_img)
+            pdf.set_y(pdf.get_y() + h_img + 10)
 
-    # Remaining Plots (Standard flow)
+    # --- Remaining Plots (2x2 Grid per page) ---
     remaining_order = [
         ("THDN Maps", "thdn"),
         ("Gain", "gain"),
@@ -219,17 +242,40 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
         ("Electrode RMS & No-Stim", "rms_electrode"),
         ("Miscellaneous", "misc")
     ]
-    
+
     for title, key in remaining_order:
         if key in organized_paths and organized_paths[key]:
             pdf.add_page()
             pdf.chapter_title(title)
-            for img_path in organized_paths[key]:
-                # Check for page overflow
-                if pdf.get_y() > 200: 
+            
+            # Grid Layout: 2 columns, rows as needed
+            imgs = organized_paths[key]
+            x_start = 10
+            y_start = pdf.get_y()
+            w_img = 90
+            h_img = 65
+            
+            col = 0
+            row = 0
+            
+            for i, img_path in enumerate(imgs):
+                if i > 0 and i % 2 == 0:
+                    row += 1
+                    col = 0
+                else:
+                    col = i % 2
+                
+                # Check page overflow
+                cur_y = y_start + (row * (h_img + 15))
+                if cur_y + h_img > 270:
                     pdf.add_page()
                     pdf.chapter_title(f"{title} (cont.)")
-                pdf.add_plot_image(img_path, os.path.basename(img_path), width=160)
+                    y_start = pdf.get_y()
+                    row = 0
+                    cur_y = y_start
+                
+                x = x_start + (col * (w_img + 5))
+                pdf.add_plot_image(img_path, os.path.basename(img_path), x, cur_y, w_img, h_img)
 
     pdf_output_path = os.path.join(output_dir, "report.pdf")
     pdf.output(pdf_output_path)
