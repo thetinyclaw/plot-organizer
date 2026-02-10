@@ -191,7 +191,79 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
         pdf.add_page()
         pdf.chapter_title(title)
         
-        # Grid settings
+        # Determine if this is a PSD group (Signal or Noise) to apply special layout
+        is_psd = "PSD" in title
+        
+        # Categorize images for PSD layout
+        full_plots = []
+        lfp_plots = []
+        sbp_plots = []
+        other_plots = []
+
+        if is_psd:
+            for img in imgs:
+                lower_name = os.path.basename(img).lower()
+                if "full" in lower_name:
+                    full_plots.append(img)
+                elif "lfp" in lower_name:
+                    lfp_plots.append(img)
+                elif "sbp" in lower_name:
+                    sbp_plots.append(img)
+                else:
+                    other_plots.append(img)
+            
+            # Special PSD Layout Execution
+            y_curr = pdf.get_y()
+            
+            # 1. Full Plot (Large, centered, own row)
+            for img in full_plots:
+                if y_curr > 220: # Check page break
+                    pdf.add_page()
+                    pdf.chapter_title(f"{title} (cont.)")
+                    y_curr = pdf.get_y()
+                
+                w_full = 180
+                x_full = (210 - w_full) / 2
+                pdf.image(img, x=x_full, y=y_curr, w=w_full)
+                y_curr += (w_full * 0.75) + 5 # Aspect ratio approx 4:3
+            
+            # 2. LFP (Left) and SBP (Right) on same row
+            # Assuming pairs, but handle mismatches gracefully
+            max_len = max(len(lfp_plots), len(sbp_plots))
+            w_half = 90
+            margin_x = 5
+            
+            for i in range(max_len):
+                if y_curr > 220: # Check page break
+                    pdf.add_page()
+                    pdf.chapter_title(f"{title} (cont.)")
+                    y_curr = pdf.get_y()
+                
+                row_h = 0
+                
+                # LFP on Left
+                if i < len(lfp_plots):
+                    pdf.image(lfp_plots[i], x=10, y=y_curr, w=w_half)
+                    row_h = w_half * 0.75
+                
+                # SBP on Right
+                if i < len(sbp_plots):
+                    pdf.image(sbp_plots[i], x=10 + w_half + margin_x, y=y_curr, w=w_half)
+                    est_h = w_half * 0.75
+                    if est_h > row_h: row_h = est_h
+                
+                y_curr += row_h + 5
+            
+            # 3. Any leftover/other plots -> Default grid logic
+            if other_plots:
+                # Reset logic for standard grid for remaining items
+                imgs = other_plots
+                # Fall through to standard grid logic below, updating y_curr
+                pdf.set_y(y_curr)
+            else:
+                return # Done with PSD special layout
+
+        # Standard Grid Layout (Original Logic) - used for non-PSD or leftover PSDs
         num_imgs = len(imgs)
         if num_imgs <= 2:
             w_img, h_img, cols_per_row = 150, 0, 1
@@ -213,7 +285,7 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
         for i, img_path in enumerate(imgs):
             if i > 0 and i % cols_per_row == 0:
                 col = 0
-                y_curr += max_y_in_row + margin_y # Removed +5 caption space
+                y_curr += max_y_in_row + margin_y 
                 max_y_in_row = 0
                 
                 # Check page break
@@ -226,11 +298,6 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
             
             # Place image
             pdf.image(img_path, x=x, y=y_curr, w=w_img)
-            
-            # Caption - Removed per user request 2026-02-10
-            # pdf.set_xy(x, pdf.get_y() + 1)
-            # pdf.set_font('Arial', 'I', 6)
-            # pdf.cell(w_img, 3, os.path.basename(img_path), 0, 0, 'C')
             
             # Track height for row
             est_h = w_img * 0.75 
