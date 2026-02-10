@@ -3,6 +3,7 @@ import argparse
 import shutil
 import pandas as pd
 from fpdf import FPDF
+from datetime import datetime
 
 def setup_args():
     parser = argparse.ArgumentParser(description="Organize plots and extract CSV data.")
@@ -13,13 +14,31 @@ def setup_args():
 def parse_metadata(folder_name):
     parts = folder_name.split('-')
     if len(parts) >= 4:
+        # Date formatting: YYMMDD -> DD MMM YYYY
+        raw_date = parts[2]
+        formatted_date = raw_date
+        try:
+            date_obj = datetime.strptime(raw_date, "%y%m%d")
+            formatted_date = date_obj.strftime("%d %b %Y").upper()
+        except ValueError:
+            pass
+
+        # Time formatting: HHMMSS -> HH:MM:SS
+        raw_time = parts[3]
+        formatted_time = raw_time
+        try:
+            time_obj = datetime.strptime(raw_time, "%H%M%S")
+            formatted_time = time_obj.strftime("%H:%M:%S")
+        except ValueError:
+            pass
+
         return {
             'part_id': parts[0].replace('_', ':'),
-            'descriptor': parts[1],
-            'date': parts[2],
-            'time': parts[3]
+            'nitara_version': parts[1],
+            'date': formatted_date,
+            'time': formatted_time
         }
-    return {'part_id': 'Unknown', 'descriptor': 'Unknown', 'date': 'Unknown', 'time': 'Unknown'}
+    return {'part_id': 'Unknown', 'nitara_version': 'Unknown', 'date': 'Unknown', 'time': 'Unknown'}
 
 def organize_files(data_root, dest_dir):
     print(f"Organizing files from {data_root}...")
@@ -160,7 +179,7 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
     pdf.set_font('Arial', '', 10)
     meta_text = (
         f"Part ID: {metadata.get('part_id', 'N/A')} | "
-        f"Descriptor: {metadata.get('descriptor', 'N/A')} | "
+        f"Nitara Version: {metadata.get('nitara_version', 'N/A')} | "
         f"Date: {metadata.get('date', 'N/A')} | "
         f"Time: {metadata.get('time', 'N/A')}"
     )
