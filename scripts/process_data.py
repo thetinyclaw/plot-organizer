@@ -211,12 +211,29 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
     pdf.multi_cell(0, 5, meta_text)
     pdf.ln(5)
 
-    def add_plot_group_dynamic(title, imgs):
-        if not imgs: return
+    def add_plot_group_dynamic(title, imgs, companion_imgs=None, flip_rows=False):
+        """
+        Generate a plot group page. 
+        If companion_imgs is provided, pairs plots from imgs and companion_imgs side by side
+        (e.g., noise vs signal versions of the same plot type).
+        If flip_rows is True, reverses the image order so bottom row appears at top.
+        """
+        if not imgs and not companion_imgs:
+            return
+        
+        # Combine imgs for processing
+        all_imgs = (imgs or []) + (companion_imgs or [])
+        if not all_imgs:
+            return
+        
+        # Reverse image order if flip_rows is requested
+        if flip_rows and imgs:
+            imgs = list(reversed(imgs))
+            
         pdf.add_page()
         pdf.chapter_title(title)
         
-        # Determine if this is a PSD group (Signal or Noise) to apply special layout
+        # Determine if this is a PSD group to apply special layout
         is_psd = "PSD" in title
         
         # Categorize images for PSD layout
@@ -226,7 +243,7 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
         other_plots = []
 
         if is_psd:
-            for img in imgs:
+            for img in all_imgs:
                 lower_name = os.path.basename(img).lower()
                 if "full" in lower_name:
                     full_plots.append(img)
@@ -237,12 +254,13 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
                 else:
                     other_plots.append(img)
             
-            # Special PSD Layout Execution
+            # Special PSD Layout Execution - Match reference PDF
             y_curr = pdf.get_y()
             
-            # 1. Full Plot (Large, centered, own row)
-            for img in full_plots:
-                if y_curr > 220: # Check page break
+            # 1. Full Spectrum PSD (Large, full-width, own row)
+            # Show both noise and signal versions stacked vertically
+            for img in sorted(full_plots):
+                if y_curr > 210:  # Check page break - lowered threshold
                     pdf.add_page()
                     pdf.chapter_title(f"{title} (cont.)")
                     y_curr = pdf.get_y()
@@ -250,16 +268,21 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
                 w_full = 180
                 x_full = (210 - w_full) / 2
                 pdf.image(img, x=x_full, y=y_curr, w=w_full)
-                y_curr += (w_full * 0.75) + 5 # Aspect ratio approx 4:3
+                y_curr += (w_full * 0.5) + 5  # Reduced height + spacing to prevent cutoff
             
-            # 2. LFP (Left) and SBP (Right) on same row
-            # Assuming pairs, but handle mismatches gracefully
-            max_len = max(len(lfp_plots), len(sbp_plots))
-            w_half = 90
-            margin_x = 5
+            # 2. LFP & SBP PSD side by side
+            # Match LFP noise with LFP signal, SBP noise with SBP signal
+            w_half = 85
+            margin_x = 10
             
-            for i in range(max_len):
-                if y_curr > 220: # Check page break
+            # Sort to ensure consistent pairing (noise first, then signal, or vice versa)
+            lfp_plots_sorted = sorted(lfp_plots)
+            sbp_plots_sorted = sorted(sbp_plots)
+            
+            max_pairs = max(len(lfp_plots_sorted), len(sbp_plots_sorted))
+            
+            for i in range(max_pairs):
+                if y_curr > 240:  # Check page break - more room before breaking
                     pdf.add_page()
                     pdf.chapter_title(f"{title} (cont.)")
                     y_curr = pdf.get_y()
@@ -267,26 +290,25 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
                 row_h = 0
                 
                 # LFP on Left
-                if i < len(lfp_plots):
-                    pdf.image(lfp_plots[i], x=10, y=y_curr, w=w_half)
-                    row_h = w_half * 0.75
+                if i < len(lfp_plots_sorted):
+                    pdf.image(lfp_plots_sorted[i], x=10, y=y_curr, w=w_half)
+                    row_h = w_half * 0.70  # Slightly reduced height
                 
                 # SBP on Right
-                if i < len(sbp_plots):
-                    pdf.image(sbp_plots[i], x=10 + w_half + margin_x, y=y_curr, w=w_half)
-                    est_h = w_half * 0.75
-                    if est_h > row_h: row_h = est_h
+                if i < len(sbp_plots_sorted):
+                    pdf.image(sbp_plots_sorted[i], x=10 + w_half + margin_x, y=y_curr, w=w_half)
+                    est_h = w_half * 0.70  # Slightly reduced height
+                    if est_h > row_h:
+                        row_h = est_h
                 
-                y_curr += row_h + 5
+                y_curr += row_h + 8  # Reduced spacing between rows
             
             # 3. Any leftover/other plots -> Default grid logic
             if other_plots:
-                # Reset logic for standard grid for remaining items
                 imgs = other_plots
-                # Fall through to standard grid logic below, updating y_curr
                 pdf.set_y(y_curr)
             else:
-                return # Done with PSD special layout
+                return  # Done with PSD special layout
 
         # Standard Grid Layout (Original Logic) - used for non-PSD or leftover PSDs
         num_imgs = len(imgs)
@@ -335,10 +357,10 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
     # --- Saline EC0 ---
     if organized_paths.get("saline_ec0"):
         ec0 = organized_paths["saline_ec0"]
-        add_plot_group_dynamic("Saline EC0 - PSD Signal", ec0.get("psd_signal"))
-        add_plot_group_dynamic("Saline EC0 - PSD Noise", ec0.get("psd_noise"))
-        add_plot_group_dynamic("Saline EC0 - Active Observed Gain", ec0.get("gain"))
-        add_plot_group_dynamic("Saline EC0 - WB Noise Floor", ec0.get("wb_noise"))
+        # Combine Signal and Noise PSDs into unified layout
+        add_plot_group_dynamic("Saline EC0 - PSD (Signal & Noise)", ec0.get("psd_signal"), ec0.get("psd_noise"))
+        add_plot_group_dynamic("Saline EC0 - Active Observed Gain", ec0.get("gain"), flip_rows=True)
+        add_plot_group_dynamic("Saline EC0 - WB Noise Floor", ec0.get("wb_noise"), flip_rows=True)
         add_plot_group_dynamic("Saline EC0 - 40 Hz Narrow Band", ec0.get("nb_40"))
         add_plot_group_dynamic("Saline EC0 - 1250 Hz Narrow Band", ec0.get("nb_1250"))
         add_plot_group_dynamic("Saline EC0 - Other Plots", ec0.get("others"))
@@ -346,10 +368,10 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
     # --- Saline EC1 ---
     if organized_paths.get("saline_ec1"):
         ec1 = organized_paths["saline_ec1"]
-        add_plot_group_dynamic("Saline EC1 - PSD Signal", ec1.get("psd_signal"))
-        add_plot_group_dynamic("Saline EC1 - PSD Noise", ec1.get("psd_noise"))
-        add_plot_group_dynamic("Saline EC1 - Active Observed Gain", ec1.get("gain"))
-        add_plot_group_dynamic("Saline EC1 - WB Noise Floor", ec1.get("wb_noise"))
+        # Combine Signal and Noise PSDs into unified layout
+        add_plot_group_dynamic("Saline EC1 - PSD (Signal & Noise)", ec1.get("psd_signal"), ec1.get("psd_noise"))
+        add_plot_group_dynamic("Saline EC1 - Active Observed Gain", ec1.get("gain"), flip_rows=True)
+        add_plot_group_dynamic("Saline EC1 - WB Noise Floor", ec1.get("wb_noise"), flip_rows=True)
         add_plot_group_dynamic("Saline EC1 - 40 Hz Narrow Band", ec1.get("nb_40"))
         add_plot_group_dynamic("Saline EC1 - 1250 Hz Narrow Band", ec1.get("nb_1250"))
         add_plot_group_dynamic("Saline EC1 - Other Plots", ec1.get("others"))

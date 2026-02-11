@@ -1,0 +1,95 @@
+def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
+    print("Generating PDF report...")
+    pdf = PDFReport()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    
+    # Cover Page / Header
+    pdf.add_page()
+    pdf.set_font('Arial', 'B', 16)
+    pdf.cell(0, 10, 'Data Analysis Report', 0, 1, 'C')
+    pdf.ln(5)
+    
+    # Metadata
+    pdf.set_font('Arial', 'B', 12)
+    pdf.cell(0, 6, 'Metadata', 0, 1)
+    pdf.set_font('Arial', '', 10)
+    meta_text = (
+        f"Part ID: {metadata.get('part_id', 'N/A')} | "
+        f"Descriptor: {metadata.get('descriptor', 'N/A')} | "
+        f"Date: {metadata.get('date', 'N/A')} | "
+        f"Time: {metadata.get('time', 'N/A')}"
+    )
+    pdf.multi_cell(0, 5, meta_text)
+    pdf.ln(5)
+
+    def add_plot_group(title, imgs, rows=None, cols=2):
+        if not imgs:
+            return
+        pdf.add_page()
+        pdf.chapter_title(title)
+        
+        y_start = pdf.get_y()
+        num_imgs = len(imgs)
+        
+        # Grid settings
+        if num_imgs <= 2:
+            w_img, h_img, cols_per_row = 150, 110, 1
+            x_center_offset = (190 - w_img) / 2
+        elif num_imgs <= 6:
+            w_img, h_img, cols_per_row = 94, 70, 2
+            x_center_offset = 0
+        else:
+            w_img, h_img, cols_per_row = 62, 48, 3
+            x_center_offset = 0
+
+        x_start = 10 + x_center_offset
+        margin_x, margin_y = 2, 5
+        
+        page_row, page_col = 0, 0
+        current_page_start_y = y_start
+        max_rows = int((270 - y_start) // (h_img + margin_y))
+        if max_rows < 1: max_rows = 1
+
+        for i, img_path in enumerate(imgs):
+            if i > 0:
+                if i % cols_per_row == 0:
+                    page_col = 0
+                    page_row += 1
+                    if page_row >= max_rows:
+                        pdf.add_page()
+                        pdf.chapter_title(f"{title} (cont.)")
+                        current_page_start_y = pdf.get_y()
+                        page_row = 0
+                        page_col = 0
+                        max_rows = int(240 // (h_img + margin_y))
+                else:
+                    page_col += 1
+            
+            x = x_start + (page_col * (w_img + margin_x))
+            y = current_page_start_y + (page_row * (h_img + margin_y))
+            pdf.add_plot_image(img_path, os.path.basename(img_path), x, y, w_img, h_img)
+
+    # --- Saline EC0 ---
+    if organized_paths.get("saline_ec0"):
+        ec0 = organized_paths["saline_ec0"]
+        add_plot_group("Saline EC0 - PSD Signal", ec0.get("psd_signal"))
+        add_plot_group("Saline EC0 - PSD Noise", ec0.get("psd_noise"))
+        add_plot_group("Saline EC0 - Other Plots", ec0.get("others"))
+
+    # --- Saline EC1 ---
+    if organized_paths.get("saline_ec1"):
+        ec1 = organized_paths["saline_ec1"]
+        add_plot_group("Saline EC1 - PSD Signal", ec1.get("psd_signal"))
+        add_plot_group("Saline EC1 - PSD Noise", ec1.get("psd_noise"))
+        add_plot_group("Saline EC1 - Other Plots", ec1.get("others"))
+
+    # --- Impedance ---
+    if organized_paths.get("impedance"):
+        imp = organized_paths["impedance"]
+        add_plot_group("Impedance - Electrodes", imp.get("electrodes"))
+        add_plot_group("Impedance - Nitara", imp.get("nitara"))
+        add_plot_group("Impedance - Yield Response", imp.get("yield"))
+
+    pdf_output_path = os.path.join(output_dir, "report.pdf")
+    pdf.output(pdf_output_path)
+    return pdf_output_path
