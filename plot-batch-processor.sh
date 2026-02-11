@@ -127,12 +127,12 @@ for zip_file in "$RAW_DATA_DIR"/*.zip; do
     # Step 2: Signal Injection Analysis
     log " [2/4] Running signal injection analysis..."
     signal_success=false
-    python3 "$SIGNAL_INJECTION_SCRIPT" "$config_file" "$MFG_CRITERIA" --channel-map "$CHANNEL_MAP" --output-dir "$analysis_dir" && signal_success=true || { log "WARNING: Signal injection failed for $part_id (known bug - continuing)"; signal_success=false }
+    python3 "$SIGNAL_INJECTION_SCRIPT" "$config_file" "$MFG_CRITERIA" --channel-map "$CHANNEL_MAP" --output-dir "$analysis_dir" && signal_success=true || { log "WARNING: Signal injection failed for $part_id (known bug - continuing)"; signal_success=false; }
 
     # Step 3: Impedance Yield Analysis (optional)
     if [ -n "$impedance_config" ]; then
         log " [3/4] Running impedance yield analysis..."
-        python3 "$IMPEDANCE_YIELD_SCRIPT" "$impedance_config" "$MFG_CRITERIA" --channel-map "$CHANNEL_MAP" --output-dir "$analysis_dir" || { log "WARNING: Impedance yield failed for $part_id (continuing)" }
+        python3 "$IMPEDANCE_YIELD_SCRIPT" "$impedance_config" "$MFG_CRITERIA" --channel-map "$CHANNEL_MAP" --output-dir "$analysis_dir" || { log "WARNING: Impedance yield failed for $part_id (continuing)"; }
     else
         log " [3/4] Skipping impedance yield analysis (no config found)"
     fi
@@ -140,7 +140,7 @@ for zip_file in "$RAW_DATA_DIR"/*.zip; do
     # Step 4: Generate PDF Report (always attempt, even with partial data)
     log " [4/4] Generating PDF report..."
     cd "$PLOT_ORGANIZER_DIR"
-    python ./scripts/process_data.py --dir "$analysis_dir" --output "$analysis_dir" || { log "ERROR: PDF generation failed for $part_id (some analysis steps may have failed)" }
+    python ./scripts/process_data.py --dir "$analysis_dir" --output "$analysis_dir" || { log "ERROR: PDF generation failed for $part_id (some analysis steps may have failed)"; }
 
     # Rename PDF to match part ID (if PDF was generated), overwrite if exists
     pdf_file=$(find "$analysis_dir" -maxdepth 1 -name "*.pdf" | head -1)
