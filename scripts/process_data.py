@@ -4,6 +4,7 @@ import shutil
 import pandas as pd
 from fpdf import FPDF
 from datetime import datetime
+from PIL import Image
 
 def setup_args():
     parser = argparse.ArgumentParser(description="Organize plots and extract CSV data.")
@@ -269,17 +270,43 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
             y_curr = pdf.get_y()
             
             # 1. Full Spectrum PSD (Large, full-width, own row)
-            # Show both noise and signal versions stacked vertically
-            for img in sorted(full_plots):
-                if y_curr > 210:  # Check page break - lowered threshold
-                    pdf.add_page()
-                    pdf.chapter_title(f"{title} (cont.)")
-                    y_curr = pdf.get_y()
+            # BOTH Full plots must stay on SAME page with minimal whitespace
+            if full_plots:
+                sorted_full = sorted(full_plots)
                 
-                w_full = 180
-                x_full = (210 - w_full) / 2
-                pdf.image(img, x=x_full, y=y_curr, w=w_full)
-                y_curr += (w_full * 0.5) + 5  # Reduced height + spacing to prevent cutoff
+                # Pre-calculate dimensions for all full plots to find optimal width
+                plot_dimensions = []
+                for img in sorted_full:
+                    with Image.open(img) as pil_img:
+                        img_w, img_h = pil_img.size
+                    plot_dimensions.append((img_w, img_h, img_h / img_w))  # (width, height, aspect_ratio)
+                
+                # Available vertical space: A4 height (297mm) - current Y position - bottom margin (15mm)
+                # Title/header already accounted for in y_curr
+                available_height = 280 - y_curr  # ~280mm max Y before bottom margin
+                spacing_between = 4  # Minimal spacing between plots (reduced from 8)
+                total_spacing = spacing_between * (len(sorted_full) - 1) if len(sorted_full) > 1 else 0
+                
+                # Calculate total height at default width (170mm) to see if scaling is needed
+                w_full = 170
+                total_height_at_default = sum(w_full * ar for _, _, ar in plot_dimensions) + total_spacing
+                
+                # If total height exceeds available space, scale down width proportionally
+                if total_height_at_default > available_height:
+                    # Find optimal width: solve for w where sum(w * aspect_ratios) + spacing = available_height
+                    total_aspect = sum(ar for _, _, ar in plot_dimensions)
+                    w_full = (available_height - total_spacing) / total_aspect
+                    # Ensure minimum readable width (don't go below 120mm)
+                    w_full = max(w_full, 120)
+                
+                # Render all full plots on same page - NO page break checks between them
+                for i, img in enumerate(sorted_full):
+                    aspect_ratio = plot_dimensions[i][2]
+                    h_rendered = w_full * aspect_ratio
+                    
+                    x_full = (210 - w_full) / 2  # Center horizontally
+                    pdf.image(img, x=x_full, y=y_curr, w=w_full)
+                    y_curr += h_rendered + (spacing_between if i < len(sorted_full) - 1 else 0)
 
             # Force page break to separate Full plots from LFP/SBP plots
             if full_plots and (lfp_plots or sbp_plots or other_plots):
