@@ -280,6 +280,12 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
                 x_full = (210 - w_full) / 2
                 pdf.image(img, x=x_full, y=y_curr, w=w_full)
                 y_curr += (w_full * 0.5) + 5  # Reduced height + spacing to prevent cutoff
+
+            # Force page break to separate Full plots from LFP/SBP plots
+            if full_plots and (lfp_plots or sbp_plots or other_plots):
+                pdf.add_page()
+                pdf.chapter_title(f"{title} (cont.)")
+                y_curr = pdf.get_y()
             
             # 2. LFP & SBP PSD side by side
             # Match LFP noise with LFP signal, SBP noise with SBP signal
