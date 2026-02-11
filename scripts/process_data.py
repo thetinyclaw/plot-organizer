@@ -26,9 +26,16 @@ def parse_metadata(folder_name):
         # Time formatting: HHMMSS -> HH:MM:SS
         raw_time = parts[3]
         formatted_time = raw_time
+        central_time = "Unknown"
         try:
             time_obj = datetime.strptime(raw_time, "%H%M%S")
-            formatted_time = time_obj.strftime("%H:%M:%S")
+            formatted_time = f"{time_obj.strftime('%H:%M:%S')} GMT"
+            
+            # Manual conversion for GMT to Central (CST is GMT-6, CDT is GMT-5)
+            # 2026-02-10 is in CST (Standard Time)
+            from datetime import timedelta
+            central_obj = time_obj - timedelta(hours=6)
+            central_time = f"{central_obj.strftime('%H:%M:%S')} CST"
         except ValueError:
             pass
 
@@ -36,9 +43,10 @@ def parse_metadata(folder_name):
             'part_id': parts[0].replace('_', ':'),
             'nitara_version': parts[1],
             'date': formatted_date,
-            'time': formatted_time
+            'time': formatted_time,
+            'central_time': central_time
         }
-    return {'part_id': 'Unknown', 'nitara_version': 'Unknown', 'date': 'Unknown', 'time': 'Unknown'}
+    return {'part_id': 'Unknown', 'nitara_version': 'Unknown', 'date': 'Unknown', 'time': 'Unknown', 'central_time': 'Unknown'}
 
 def organize_files(data_root, dest_dir):
     print(f"Organizing files from {data_root}...")
@@ -48,11 +56,19 @@ def organize_files(data_root, dest_dir):
         "saline_ec0": {
             "psd_signal": [],
             "psd_noise": [],
+            "gain": [],
+            "wb_noise": [],
+            "nb_40": [],
+            "nb_1250": [],
             "others": []
         },
         "saline_ec1": {
             "psd_signal": [],
             "psd_noise": [],
+            "gain": [],
+            "wb_noise": [],
+            "nb_40": [],
+            "nb_1250": [],
             "others": []
         },
         "impedance": {
@@ -98,6 +114,14 @@ def organize_files(data_root, dest_dir):
                                 organized_data[ec_key]["psd_noise"].append(file_path)
                             else:
                                 organized_data[ec_key]["psd_signal"].append(file_path)
+                        elif "40-gain" in lower_name or "1250-gain" in lower_name:
+                            organized_data[ec_key]["gain"].append(file_path)
+                        elif any(x in lower_name for x in ["wb-noise-electrode", "wb-active-electrode", "wb-noise-nitara", "wb-active-nitara"]):
+                            organized_data[ec_key]["wb_noise"].append(file_path)
+                        elif any(x in lower_name for x in ["40-active-electrode", "40-noise-electrode", "40-active-nitara", "40-noise-nitara"]):
+                            organized_data[ec_key]["nb_40"].append(file_path)
+                        elif any(x in lower_name for x in ["1250-active-electrode", "1250-noise-electrode", "1250-active-nitara", "1250-noise-nitara"]):
+                            organized_data[ec_key]["nb_1250"].append(file_path)
                         else:
                             organized_data[ec_key]["others"].append(file_path)
 
@@ -124,7 +148,7 @@ def organize_files(data_root, dest_dir):
     for ec in ["saline_ec0", "saline_ec1"]:
         ec_dir = os.path.join(plots_dir, ec)
         os.makedirs(ec_dir, exist_ok=True)
-        for group in ["psd_signal", "psd_noise", "others"]:
+        for group in ["psd_signal", "psd_noise", "gain", "wb_noise", "nb_40", "nb_1250", "others"]:
             if organized_data[ec][group]:
                 group_dir = os.path.join(ec_dir, group)
                 os.makedirs(group_dir, exist_ok=True)
@@ -181,7 +205,8 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
         f"Part ID: {metadata.get('part_id', 'N/A')} | "
         f"Nitara Version: {metadata.get('nitara_version', 'N/A')} | "
         f"Date: {metadata.get('date', 'N/A')} | "
-        f"Time: {metadata.get('time', 'N/A')}"
+        f"Time: {metadata.get('time', 'N/A')} | "
+        f"Local Time: {metadata.get('central_time', 'N/A')}"
     )
     pdf.multi_cell(0, 5, meta_text)
     pdf.ln(5)
@@ -312,6 +337,10 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
         ec0 = organized_paths["saline_ec0"]
         add_plot_group_dynamic("Saline EC0 - PSD Signal", ec0.get("psd_signal"))
         add_plot_group_dynamic("Saline EC0 - PSD Noise", ec0.get("psd_noise"))
+        add_plot_group_dynamic("Saline EC0 - Active Observed Gain", ec0.get("gain"))
+        add_plot_group_dynamic("Saline EC0 - WB Noise Floor", ec0.get("wb_noise"))
+        add_plot_group_dynamic("Saline EC0 - 40 Hz Narrow Band", ec0.get("nb_40"))
+        add_plot_group_dynamic("Saline EC0 - 1250 Hz Narrow Band", ec0.get("nb_1250"))
         add_plot_group_dynamic("Saline EC0 - Other Plots", ec0.get("others"))
 
     # --- Saline EC1 ---
@@ -319,6 +348,10 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
         ec1 = organized_paths["saline_ec1"]
         add_plot_group_dynamic("Saline EC1 - PSD Signal", ec1.get("psd_signal"))
         add_plot_group_dynamic("Saline EC1 - PSD Noise", ec1.get("psd_noise"))
+        add_plot_group_dynamic("Saline EC1 - Active Observed Gain", ec1.get("gain"))
+        add_plot_group_dynamic("Saline EC1 - WB Noise Floor", ec1.get("wb_noise"))
+        add_plot_group_dynamic("Saline EC1 - 40 Hz Narrow Band", ec1.get("nb_40"))
+        add_plot_group_dynamic("Saline EC1 - 1250 Hz Narrow Band", ec1.get("nb_1250"))
         add_plot_group_dynamic("Saline EC1 - Other Plots", ec1.get("others"))
 
     # --- Impedance ---
