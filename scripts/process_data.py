@@ -71,6 +71,15 @@ def organize_files(data_root, dest_dir):
             "nb_1250": [],
             "others": []
         },
+        "saline_ec2": {
+            "psd_signal": [],
+            "psd_noise": [],
+            "gain": [],
+            "wb_noise": [],
+            "nb_40": [],
+            "nb_1250": [],
+            "others": []
+        },        
         "impedance": {
             "electrodes": [],
             "nitara": [],
@@ -107,7 +116,8 @@ def organize_files(data_root, dest_dir):
                         ec_key = "saline_ec0"
                     elif "ec1" in lower_name:
                         ec_key = "saline_ec1"
-                    
+                    elif "ec2" in lower_name:
+                        ec_key = "saline_ec2"
                     if ec_key:
                         if "psd" in lower_name:
                             if "noise" in lower_name:
@@ -138,6 +148,7 @@ def organize_files(data_root, dest_dir):
     organized_paths = {
         "saline_ec0": {},
         "saline_ec1": {},
+        "saline_ec2": {},
         "impedance": {}
     }
     
@@ -145,7 +156,7 @@ def organize_files(data_root, dest_dir):
     os.makedirs(plots_dir, exist_ok=True)
 
     # Process Saline
-    for ec in ["saline_ec0", "saline_ec1"]:
+    for ec in ["saline_ec0", "saline_ec1", "saline_ec2"]:
         ec_dir = os.path.join(plots_dir, ec)
         os.makedirs(ec_dir, exist_ok=True)
         for group in ["psd_signal", "psd_noise", "gain", "wb_noise", "nb_40", "nb_1250", "others"]:
@@ -375,6 +386,17 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
         add_plot_group_dynamic("Saline EC1 - 40 Hz Narrow Band", ec1.get("nb_40"))
         add_plot_group_dynamic("Saline EC1 - 1250 Hz Narrow Band", ec1.get("nb_1250"))
         add_plot_group_dynamic("Saline EC1 - Other Plots", ec1.get("others"))
+
+    # --- Saline EC2 ---
+    if organized_paths.get("saline_ec2"):
+        ec2 = organized_paths["saline_ec2"]
+        # Combine Signal and Noise PSDs into unified layout
+        add_plot_group_dynamic("Saline EC2 - PSD (Signal & Noise)", ec2.get("psd_signal"), ec2.get("psd_noise"))
+        add_plot_group_dynamic("Saline EC2 - Active Observed Gain", ec2.get("gain"), flip_rows=True)
+        add_plot_group_dynamic("Saline EC2 - WB Noise Floor", ec2.get("wb_noise"), flip_rows=True)
+        add_plot_group_dynamic("Saline EC2 - 40 Hz Narrow Band", ec2.get("nb_40"))
+        add_plot_group_dynamic("Saline EC2 - 1250 Hz Narrow Band", ec2.get("nb_1250"))
+        add_plot_group_dynamic("Saline EC2 - Other Plots", ec2.get("others"))
 
     # --- Impedance ---
     if organized_paths.get("impedance"):
