@@ -3,6 +3,10 @@
 # Processes all ZIPs in Raw-Data-EFS folder through the full pipeline
 # Output: Final PDFs named after part IDs in v2-Analysis-EFS/
 # Note: Removed 'set -e' - we handle errors explicitly per-step to ensure continuity
+# 
+# Usage:
+#   ./plot-batch-processor.sh              # Run full pipeline (steps 1-4) on all ZIPs
+#   ./plot-batch-processor.sh --pdf-only DIR  # Skip analysis (steps 1-3), generate PDF only for DIR
 
 # Configuration
 RAW_DATA_DIR="/mnt/c/Users/Amehra/Documents/data/CM_data/Raw-Data-EFS"
@@ -18,6 +22,49 @@ CHANNEL_MAP="n2d"
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
 }
+
+# Parse arguments
+PDF_ONLY=false
+ANALYSIS_DIR=""
+
+if [ "$1" == "--pdf-only" ]; then
+    PDF_ONLY=true
+    ANALYSIS_DIR="$2"
+    if [ -z "$ANALYSIS_DIR" ]; then
+        log "ERROR: --pdf-only requires a directory path"
+        log "Usage: $0 --pdf-only <analysis_dir>"
+        exit 1
+    fi
+    if [ ! -d "$ANALYSIS_DIR" ]; then
+        log "ERROR: Directory does not exist: $ANALYSIS_DIR"
+        exit 1
+    fi
+fi
+
+# PDF-only mode: skip to step 4
+if [ "$PDF_ONLY" = true ]; then
+    log "PDF-only mode: generating report for $ANALYSIS_DIR"
+    
+    # Extract part ID from directory name (last component)
+    part_id=$(basename "$ANALYSIS_DIR")
+    
+    # Step 4: Generate PDF Report
+    log " [4/4] Generating PDF report..."
+    cd "$PLOT_ORGANIZER_DIR"
+    python ./scripts/process_data.py --dir "$ANALYSIS_DIR" --output "$ANALYSIS_DIR" || { log "ERROR: PDF generation failed for $part_id"; exit 1; }
+    
+    # Rename PDF to match part ID, overwrite if exists
+    pdf_file=$(find "$ANALYSIS_DIR" -maxdepth 1 -name "*.pdf" | head -1)
+    if [ -f "$pdf_file" ]; then
+        mv -f "$pdf_file" "$ANALYSIS_DIR/${part_id}.pdf"
+        log "✅ Complete: $ANALYSIS_DIR/${part_id}.pdf"
+    else
+        log "ERROR: No PDF generated for $part_id"
+        exit 1
+    fi
+    
+    exit 0
+fi
 
 # Find all ZIPs in Raw-Data-EFS and process each
 log "Starting batch processing of ZIPs in $RAW_DATA_DIR"
@@ -95,10 +142,10 @@ for zip_file in "$RAW_DATA_DIR"/*.zip; do
     cd "$PLOT_ORGANIZER_DIR"
     python ./scripts/process_data.py --dir "$analysis_dir" --output "$analysis_dir" || { log "ERROR: PDF generation failed for $part_id (some analysis steps may have failed)" }
 
-    # Rename PDF to match part ID (if PDF was generated)
+    # Rename PDF to match part ID (if PDF was generated), overwrite if exists
     pdf_file=$(find "$analysis_dir" -maxdepth 1 -name "*.pdf" | head -1)
     if [ -f "$pdf_file" ]; then
-        mv "$pdf_file" "$analysis_dir/${part_id}.pdf"
+        mv -f "$pdf_file" "$analysis_dir/${part_id}.pdf"
         log "✅ Complete: $analysis_dir/${part_id}.pdf"
     else
         log "⚠️ WARNING: No PDF generated for $part_id (analysis may have produced no output)"
