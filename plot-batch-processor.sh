@@ -2,8 +2,7 @@
 # Plot Organizer Batch Processor
 # Processes all ZIPs in Raw-Data-EFS folder through the full pipeline
 # Output: Final PDFs named after part IDs in v2-Analysis-EFS/
-
-set -e  # Exit on error
+# Note: Removed 'set -e' - we handle errors explicitly per-step to ensure continuity
 
 # Configuration
 RAW_DATA_DIR="/mnt/c/Users/Amehra/Documents/data/CM_data/Raw-Data-EFS"
@@ -38,7 +37,7 @@ for zip_file in "$RAW_DATA_DIR"/*.zip; do
     mkdir -p "$analysis_dir"
 
     # Step 1: Unzip files
-    log "  [1/4] Unzipping..."
+    log " [1/4] Unzipping..."
     if command -v unzip &> /dev/null; then
         unzip -q "$zip_file" -d "$RAW_DATA_DIR/$part_id" || { log "ERROR: Failed to unzip $zip_file"; continue; }
     elif command -v 7z &> /dev/null; then
@@ -59,7 +58,7 @@ for zip_file in "$RAW_DATA_DIR"/*.zip; do
         continue
     fi
     test_date=$(basename "$date_dir")
-    log "  Found test date: $test_date"
+    log " Found test date: $test_date"
 
     # Find signal injection config in date directory
     config_file=$(find "$date_dir" -maxdepth 1 -name "*-config.yml" ! -name "*impedance*" | head -1)
@@ -75,46 +74,38 @@ for zip_file in "$RAW_DATA_DIR"/*.zip; do
     
     # Impedance config is optional
     if [ -z "$impedance_config" ]; then
-        log "  WARNING: No impedance config found. Skipping impedance analysis."
+        log " WARNING: No impedance config found. Skipping impedance analysis."
     fi
 
     # Step 2: Signal Injection Analysis
-    log "  [2/4] Running signal injection analysis..."
-    python3 "$SIGNAL_INJECTION_SCRIPT" "$config_file" "$MFG_CRITERIA" --channel-map "$CHANNEL_MAP" --output-dir "$analysis_dir" || {
-        log "ERROR: Signal injection failed for $part_id"
-        continue
-    }
+    log " [2/4] Running signal injection analysis..."
+    signal_success=false
+    python3 "$SIGNAL_INJECTION_SCRIPT" "$config_file" "$MFG_CRITERIA" --channel-map "$CHANNEL_MAP" --output-dir "$analysis_dir" && signal_success=true || { log "WARNING: Signal injection failed for $part_id (known bug - continuing)"; signal_success=false }
 
     # Step 3: Impedance Yield Analysis (optional)
     if [ -n "$impedance_config" ]; then
-        log "  [3/4] Running impedance yield analysis..."
-        python3 "$IMPEDANCE_YIELD_SCRIPT" "$impedance_config" "$MFG_CRITERIA" --channel-map "$CHANNEL_MAP" --output-dir "$analysis_dir" || {
-            log "ERROR: Impedance yield failed for $part_id"
-            continue
-        }
+        log " [3/4] Running impedance yield analysis..."
+        python3 "$IMPEDANCE_YIELD_SCRIPT" "$impedance_config" "$MFG_CRITERIA" --channel-map "$CHANNEL_MAP" --output-dir "$analysis_dir" || { log "WARNING: Impedance yield failed for $part_id (continuing)" }
     else
-        log "  [3/4] Skipping impedance yield analysis (no config found)"
+        log " [3/4] Skipping impedance yield analysis (no config found)"
     fi
 
-    # Step 4: Generate PDF Report
-    log "  [4/4] Generating PDF report..."
+    # Step 4: Generate PDF Report (always attempt, even with partial data)
+    log " [4/4] Generating PDF report..."
     cd "$PLOT_ORGANIZER_DIR"
-    python ./scripts/process_data.py --dir "$analysis_dir" --output "$analysis_dir" || {
-        log "ERROR: PDF generation failed for $part_id"
-        continue
-    }
+    python ./scripts/process_data.py --dir "$analysis_dir" --output "$analysis_dir" || { log "ERROR: PDF generation failed for $part_id (some analysis steps may have failed)" }
 
-    # Rename PDF to match part ID
+    # Rename PDF to match part ID (if PDF was generated)
     pdf_file=$(find "$analysis_dir" -maxdepth 1 -name "*.pdf" | head -1)
     if [ -f "$pdf_file" ]; then
         mv "$pdf_file" "$analysis_dir/${part_id}.pdf"
         log "✅ Complete: $analysis_dir/${part_id}.pdf"
     else
-        log "ERROR: No PDF generated for $part_id"
+        log "⚠️ WARNING: No PDF generated for $part_id (analysis may have produced no output)"
     fi
 
     # Cleanup: Remove unzipped folder from Raw-Data-EFS
-    log "  Cleaning up unzipped files..."
+    log " Cleaning up unzipped files..."
     rm -rf "$RAW_DATA_DIR/$part_id" || log "WARNING: Could not delete $RAW_DATA_DIR/$part_id"
 
 done
