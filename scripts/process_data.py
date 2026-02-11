@@ -223,12 +223,13 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
     pdf.multi_cell(0, 5, meta_text)
     pdf.ln(5)
 
-    def add_plot_group_dynamic(title, imgs, companion_imgs=None, flip_rows=False):
+    def add_plot_group_dynamic(title, imgs, companion_imgs=None, flip_rows=False, flip_columns=False):
         """
         Generate a plot group page. 
         If companion_imgs is provided, pairs plots from imgs and companion_imgs side by side
         (e.g., noise vs signal versions of the same plot type).
         If flip_rows is True, reverses the image order so bottom row appears at top.
+        If flip_columns is True, reverses the order of columns in each row (left-right flip).
         """
         if not imgs and not companion_imgs:
             return
@@ -385,7 +386,13 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
                     pdf.chapter_title(f"{title} (cont.)")
                     y_curr = pdf.get_y()
 
-            x = x_start + (col * (w_img + margin_x))
+            # Calculate column position - flip columns if requested
+            if flip_columns:
+                # Calculate position from the right side
+                col_from_right = (cols_per_row - 1) - (i % cols_per_row)
+                x = x_start + (col_from_right * (w_img + margin_x))
+            else:
+                x = x_start + (col * (w_img + margin_x))
             
             # Place image
             pdf.image(img_path, x=x, y=y_curr, w=w_img)
@@ -404,7 +411,7 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
         # Combine Signal and Noise PSDs into unified layout
         add_plot_group_dynamic("Saline EC0 - PSD (Signal & Noise)", ec0.get("psd_signal"), ec0.get("psd_noise"))
         add_plot_group_dynamic("Saline EC0 - Active Observed Gain", ec0.get("gain"), flip_rows=True)
-        add_plot_group_dynamic("Saline EC0 - WB Noise Floor", ec0.get("wb_noise"), flip_rows=True)
+        add_plot_group_dynamic("Saline EC0 - WB Noise Floor", ec0.get("wb_noise"), flip_rows=True, flip_columns=True)
         add_plot_group_dynamic("Saline EC0 - 40 Hz Narrow Band", ec0.get("nb_40"))
         add_plot_group_dynamic("Saline EC0 - 1250 Hz Narrow Band", ec0.get("nb_1250"))
         add_plot_group_dynamic("Saline EC0 - Other Plots", ec0.get("others"))
@@ -415,7 +422,7 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
         # Combine Signal and Noise PSDs into unified layout
         add_plot_group_dynamic("Saline EC1 - PSD (Signal & Noise)", ec1.get("psd_signal"), ec1.get("psd_noise"))
         add_plot_group_dynamic("Saline EC1 - Active Observed Gain", ec1.get("gain"), flip_rows=True)
-        add_plot_group_dynamic("Saline EC1 - WB Noise Floor", ec1.get("wb_noise"), flip_rows=True)
+        add_plot_group_dynamic("Saline EC1 - WB Noise Floor", ec1.get("wb_noise"), flip_rows=True, flip_columns=True)
         add_plot_group_dynamic("Saline EC1 - 40 Hz Narrow Band", ec1.get("nb_40"))
         add_plot_group_dynamic("Saline EC1 - 1250 Hz Narrow Band", ec1.get("nb_1250"))
         add_plot_group_dynamic("Saline EC1 - Other Plots", ec1.get("others"))
@@ -426,7 +433,7 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
         # Combine Signal and Noise PSDs into unified layout
         add_plot_group_dynamic("Saline EC2 - PSD (Signal & Noise)", ec2.get("psd_signal"), ec2.get("psd_noise"))
         add_plot_group_dynamic("Saline EC2 - Active Observed Gain", ec2.get("gain"), flip_rows=True)
-        add_plot_group_dynamic("Saline EC2 - WB Noise Floor", ec2.get("wb_noise"), flip_rows=True)
+        add_plot_group_dynamic("Saline EC2 - WB Noise Floor", ec2.get("wb_noise"), flip_rows=True, flip_columns=True)
         add_plot_group_dynamic("Saline EC2 - 40 Hz Narrow Band", ec2.get("nb_40"))
         add_plot_group_dynamic("Saline EC2 - 1250 Hz Narrow Band", ec2.get("nb_1250"))
         add_plot_group_dynamic("Saline EC2 - Other Plots", ec2.get("others"))
