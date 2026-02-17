@@ -10,6 +10,7 @@ def setup_args():
     parser = argparse.ArgumentParser(description="Organize plots and extract CSV data.")
     parser.add_argument('--dir', required=True, help="Path to the input directory")
     parser.add_argument('--output', default="report_output", help="Directory to save the report and organized files")
+    parser.add_argument('--summary', default="", help="Signal injection summary line to display on the first page")
     return parser.parse_args()
 
 def parse_metadata(folder_name):
@@ -200,7 +201,7 @@ class PDFReport(FPDF):
     def add_plot_image(self, img_path, x, y, w, h=0):
         self.image(img_path, x=x, y=y, w=w, h=h)
 
-def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
+def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths, summary_line=""):
     print("Generating PDF report...")
     pdf = PDFReport()
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -222,6 +223,14 @@ def generate_pdf_report(output_dir, metadata, csv_summary, organized_paths):
     )
     pdf.multi_cell(0, 5, meta_text)
     pdf.ln(5)
+    
+    # Signal injection summary
+    if summary_line:
+        pdf.set_font('Arial', 'B', 12)
+        pdf.cell(0, 6, 'Signal Injection Summary', 0, 1)
+        pdf.set_font('Arial', '', 10)
+        pdf.multi_cell(0, 5, summary_line)
+        pdf.ln(5)
 
     def add_plot_group_dynamic(title, imgs, companion_imgs=None, flip_rows=False, flip_columns=False):
         """
@@ -454,7 +463,7 @@ if __name__ == "__main__":
     os.makedirs(args.output, exist_ok=True)
     try:
         metadata, csv_summary, organized_paths = organize_files(args.dir, args.output)
-        pdf_path = generate_pdf_report(args.output, metadata, csv_summary, organized_paths)
+        pdf_path = generate_pdf_report(args.output, metadata, csv_summary, organized_paths, summary_line=args.summary)
         print(f"Done! Report saved to {pdf_path}")
     except Exception as e:
         print(f"Error: {e}")
